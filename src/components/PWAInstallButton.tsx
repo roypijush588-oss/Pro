@@ -57,7 +57,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 's
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
             <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl border border-gray-100">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-bold text-gray-900">Install EduScan AI</h3>
+                <h3 className="text-lg font-bold text-gray-900">Install Pro</h3>
                 <button
                   onClick={() => setShowIOSGuide(false)}
                   className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg"

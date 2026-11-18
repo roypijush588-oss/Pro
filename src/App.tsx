@@ -91,7 +91,7 @@ function App() {
         <div className="md:hidden flex items-center justify-between px-4 py-3 pt-safe bg-white border-b border-gray-200">
           <div className="flex items-center gap-2 font-bold text-gray-900">
             <BookOpen className="w-5 h-5 text-blue-600" />
-            SummAIry
+            Pro
           </div>
           <div className="flex items-center gap-2">
             <PWAInstallButton variant="compact" />

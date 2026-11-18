@@ -188,7 +188,7 @@ export function StudyHub() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-              <Zap className="w-6 h-6 text-indigo-500" /> EduScanAI
+              <Zap className="w-6 h-6 text-indigo-500" /> Pro
             </h1>
             <div className="flex gap-2">
               <button className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-300 transition-colors">

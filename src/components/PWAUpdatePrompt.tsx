@@ -43,7 +43,7 @@ export const PWAUpdatePrompt: React.FC = () => {
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-semibold">Update Ready</h4>
             <p className="text-xs text-gray-300 mt-0.5">
-              A new version of EduScan AI is ready. Reload safely — your saved notes and quizzes stay intact.
+              A new version of Pro is ready. Reload safely — your saved notes and quizzes stay intact.
             </p>
             <div className="flex items-center gap-2 mt-3">
               <button

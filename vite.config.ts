@@ -8,6 +8,7 @@ export default defineConfig(() => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      hmr: false,
     },
     plugins: [
       react(),
@@ -23,8 +24,8 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'EduScan AI — SummAIry',
-          short_name: 'EduScan AI',
+          name: 'Pro',
+          short_name: 'Pro',
           description:
             'Snap a picture of a textbook page or paste text to summarize topics, generate notes, flashcards, quizzes, and study lessons.',
           theme_color: '#2563eb',

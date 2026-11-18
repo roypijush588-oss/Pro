@@ -41,7 +41,7 @@ export function Sidebar({ activeTab, setActiveTab, onSelectNote, isOpen, setIsOp
       <div className="p-6 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <BookOpen className="w-6 h-6 text-blue-600" />
-          SummAIry
+          Pro
         </h1>
         <button className="md:hidden p-2 text-gray-500 hover:bg-gray-200 rounded-lg" onClick={() => setIsOpen(false)} aria-label="Close menu">
           <X className="w-5 h-5" />

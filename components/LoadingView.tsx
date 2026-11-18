@@ -36,7 +36,7 @@ const LoadingView: React.FC<LoadingViewProps> = ({ progress, stage }) => {
 
   return (
     <div className="p-8 text-center space-y-8 animate-in fade-in duration-500">
-      <h2 className="text-2xl font-bold text-gray-200">EduScan AI is thinking...</h2>
+      <h2 className="text-2xl font-bold text-gray-200">Pro is thinking...</h2>
       
       {/* Progress Bar */}
       <div className="w-full bg-gray-700 rounded-full h-4">
