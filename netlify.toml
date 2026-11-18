@@ -1,0 +1,14 @@
+
+[build]
+  # This is a static site with no build step required.
+  # Netlify will serve the files from the root of the repository.
+  command = "echo 'No build command needed for this structure'"
+  publish = "."
+
+# Redirect rule for Single Page Applications (SPA).
+# This ensures that any direct navigation or page refresh on a client-side route
+# correctly serves the main index.html file, allowing React to handle it.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

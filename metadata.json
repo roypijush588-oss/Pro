@@ -1,0 +1,11 @@
+{
+  "name": "PRO",
+  "description": "Snap a picture of a textbook page or notes, and EduScan AI will act as your personal AI tutor. It summarizes the topic, explains formulas, and generates short answer, long answer, and multiple-choice questions to help you study.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
