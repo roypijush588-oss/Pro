@@ -1,17 +1,51 @@
 import type { StudyMode, EducationalContent, DeepDiveContent } from '../types';
 
-async function postGemini<T>(endpoint: string, payload: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`/api/gemini/${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+const CLIENT_TIMEOUT_MS = 65_000;
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.error || `Request failed with status ${response.status}`);
+async function postGemini<T>(endpoint: string, payload: Record<string, unknown>): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`/api/gemini/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const rawText = await response.text();
+    let data: { result?: T; error?: string } = {};
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText) as { result?: T; error?: string };
+      } catch {
+        // Non-JSON response (e.g. proxy/gateway error page)
+      }
+    }
+
+    if (!response.ok) {
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      if (response.status === 413) {
+        throw new Error('The uploaded image or text is too large. Please try a smaller file or shorter input.');
+      }
+      if (response.status === 504) {
+        throw new Error('The server timed out while waiting for the AI response. Please try again.');
+      }
+      throw new Error(rawText.slice(0, 200) || `Request failed with status ${response.status}`);
+    }
+
+    return data.result as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Request timed out. Please check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data.result as T;
 }
 
 export async function generateEducationalContentFromText(
