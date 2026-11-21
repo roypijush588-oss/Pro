@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { EducationalContent, DeepDiveContent, StudyMode } from '../types';
 import { BookOpenIcon, BoltIcon, RectangleStackIcon, ChatBubbleLeftRightIcon, DownloadIcon, ArrowPathIcon, CalculatorIcon, PhotoIcon, BeakerIcon, GlobeAmericasIcon } from './icons';
-import Latex from 'react-latex-next';
+import Latex from './Latex';
 import QuestionAccordion from './QuestionAccordion';
 import Flashcard from './Flashcard';
 import MermaidDiagram from './MermaidDiagram';
