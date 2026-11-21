@@ -1,6 +1,6 @@
-import path from 'path';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import puppeteer from 'puppeteer';
 import {
   generateSummary,
@@ -35,13 +35,13 @@ function sendGeminiError(res: express.Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'Gemini API request failed.';
   const statusMatch = message.match(/\b(400|401|403|404|429|500|503)\b/);
   const status =
-    message.includes('RESOURCE_EXHAUSTED')
+    message.includes('RESOURCE_EXHAUSTED') || message.includes('429')
       ? 429
-      : message.includes('PERMISSION_DENIED')
+      : message.includes('PERMISSION_DENIED') || message.includes('403')
         ? 403
-        : message.includes('API_KEY_INVALID')
+        : message.includes('API_KEY_INVALID') || message.includes('400')
           ? 400
-          : message.includes('NOT_FOUND')
+          : message.includes('NOT_FOUND') || message.includes('404')
             ? 404
             : statusMatch
               ? Number(statusMatch[1])
@@ -294,29 +294,15 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    // In production, serve static files from dist with no-cache for SW & manifest
-    const distDir = path.resolve('dist');
-    app.use(
-      express.static(distDir, {
-        setHeaders(res, filePath) {
-          if (
-            filePath.endsWith('sw.js') ||
-            filePath.endsWith('registerSW.js') ||
-            filePath.endsWith('manifest.webmanifest')
-          ) {
-            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-          }
-        },
-      })
-    );
-    app.get('/{*splat}', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      res.sendFile(path.join(distDir, 'index.html'));
+    // In production, serve static files from dist
+    app.use(express.static('dist'));
+    app.get('/{*splat}', (_req, res) => {
+      res.sendFile(path.resolve('dist', 'index.html'));
     });
   }
 

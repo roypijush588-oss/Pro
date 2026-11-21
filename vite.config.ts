@@ -9,8 +9,46 @@ export default defineConfig(() => {
       port: 3000,
       host: '0.0.0.0',
       hmr: false,
+      ws: false,
     },
     plugins: [
+      {
+        name: 'disable-hmr-ws',
+        apply: 'serve',
+        enforce: 'post',
+        transform(code, id) {
+          if (id.includes('vite/dist/client/client.mjs')) {
+            return code.replace(
+              /const createWebSocketModuleRunnerTransport\s*=[\s\S]*?(?=function createHMRHandler)/,
+              'const createWebSocketModuleRunnerTransport = () => ({ async connect() {}, async disconnect() {}, async send() {} });\n'
+            );
+          }
+        },
+      },
+      {
+        name: 'react-refresh-preamble-guard',
+        apply: 'serve',
+        transformIndexHtml(html) {
+          return {
+            html,
+            tags: [
+              {
+                tag: 'script',
+                injectTo: 'head-prepend',
+                children: [
+                  'window.$RefreshReg$ = window.$RefreshReg$ || (() => {});',
+                  'window.$RefreshSig$ = window.$RefreshSig$ || (() => (type) => type);',
+                  'if ("serviceWorker" in navigator) {',
+                  '  navigator.serviceWorker.getRegistrations().then((regs) => {',
+                  '    regs.forEach((reg) => { reg.unregister().catch(() => {}); });',
+                  '  }).catch(() => {});',
+                  '}',
+                ].join('\n'),
+              },
+            ],
+          };
+        },
+      },
       react(),
       VitePWA({
         registerType: 'prompt',
@@ -156,9 +194,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
-          navigateFallback: 'index.html',
+          enabled: false,
         },
       }),
     ],

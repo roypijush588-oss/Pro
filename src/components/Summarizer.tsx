@@ -1,8 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Type, Image as ImageIcon, Link as LinkIcon, Loader2, Settings2, WifiOff, Clock, Trash2 } from 'lucide-react';
+import { Type, Image as ImageIcon, Link as LinkIcon, Loader2, Settings2 } from 'lucide-react';
 import { generateSummary, SummaryOptions } from '../lib/gemini';
-import { Note, useStore } from '../store/useStore';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { Note } from '../store/useStore';
 
 interface SummarizerProps {
   onSummaryComplete: (note: Note) => void;
@@ -15,11 +14,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
   const [imageUrl, setImageUrl] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
-  const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isOnline = useOnlineStatus();
-  const { enqueueSummary, pendingSummaries, removeQueuedSummary } = useStore();
 
   const [options, setOptions] = useState<SummaryOptions>({
     length: '50%',
@@ -41,38 +36,18 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
 
   const handleSummarize = async () => {
     if (!text && !url && !imageUrl) return;
-    setErrorMessage(null);
-
-    if (!isOnline) {
-      if (imageUrl) {
-        setErrorMessage("Image summarization requires an internet connection. Switch to Text or Link to queue a draft for sync.");
-        return;
-      }
-      enqueueSummary({ text, url, options });
-      setText('');
-      setUrl('');
-      setQueuedNotice("Saved to offline sync queue. It will be summarized automatically once you're back online.");
-      setTimeout(() => setQueuedNotice(null), 5000);
-      return;
-    }
     
     setIsProcessing(true);
     try {
       const summaryText = await generateSummary(text, options, imageUrl, url);
       
-      const trimmedText = text.trim();
-      const noteTitle = trimmedText
-        ? (trimmedText.length > 30 ? `${trimmedText.slice(0, 30)}...` : trimmedText)
-        : url || 'Image Summary';
-
       const newNote: Note = {
         id: Date.now().toString(),
-        title: noteTitle,
+        title: (text.trim() ? text.trim().slice(0, 30) + (text.trim().length > 30 ? '...' : '') : '') || url || 'Image Summary',
         originalText: text || url || 'Image content',
         summary: summaryText,
         date: new Date().toISOString(),
-        folder: 'Uncategorized',
-        syncSource: 'online'
+        folder: 'Uncategorized'
       };
       
       onSummaryComplete(newNote);
@@ -80,9 +55,9 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
       console.error("Summarization failed:", error);
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
+        alert("API Quota Exceeded. Please check your plan and billing details.");
       } else {
-        setErrorMessage("Failed to generate summary. Please try again.");
+        alert("Failed to generate summary. Please try again.");
       }
     } finally {
       setIsProcessing(false);
@@ -207,75 +182,12 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
               <>
                 <Loader2 className="w-5 h-5 animate-spin" /> Summarizing...
               </>
-            ) : !isOnline ? (
-              <>
-                <WifiOff className="w-4 h-4" /> {imageUrl ? 'Requires Connection' : 'Queue for Online Sync'}
-              </>
             ) : (
               'Generate Summary'
             )}
           </button>
         </div>
       </div>
-
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-2xl px-4 py-3 text-sm flex items-center justify-between gap-2">
-          <span>{errorMessage}</span>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-xs font-medium text-red-700 hover:text-red-900"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {queuedNotice && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-2xl px-4 py-3 text-sm flex items-center gap-2">
-          <Clock className="w-4 h-4 shrink-0 text-blue-600" />
-          <span>{queuedNotice}</span>
-        </div>
-      )}
-
-      {pendingSummaries.length > 0 && (
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-600" />
-              Queued Summaries ({pendingSummaries.length})
-            </h3>
-            <span className="text-xs text-gray-500">
-              {isOnline ? 'Syncing automatically...' : 'Will sync when back online'}
-            </span>
-          </div>
-          <div className="space-y-2">
-            {pendingSummaries.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100 text-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-gray-800 truncate">
-                    {item.text || item.url}
-                  </p>
-                  <p className="text-xs text-gray-500 capitalize">
-                    Status: {item.status}
-                    {item.error ? ` — ${item.error}` : ''}
-                  </p>
-                </div>
-                <button
-                  onClick={() => removeQueuedSummary(item.id)}
-                  className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
-                  title="Remove from queue"
-                  aria-label="Remove queued summary"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Expandable Options */}
       {showOptions && (

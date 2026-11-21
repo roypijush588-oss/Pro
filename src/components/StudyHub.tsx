@@ -7,14 +7,6 @@ import {
   BookOpen
 } from 'lucide-react';
 
-interface Question {
-  id: string;
-  q: string;
-  a: string;
-  options?: string[];
-  explanation?: string;
-}
-
 // --- Mock Data ---
 const mockData = {
   vsa: [
@@ -78,7 +70,15 @@ export function StudyHub() {
     });
   };
 
-  const renderQuestionCard = (item: Question, isMCQ: boolean = false) => {
+  interface StudyHubQuestion {
+    id: string;
+    q: string;
+    a: string;
+    options?: string[];
+    explanation?: string;
+  }
+
+  const renderQuestionCard = (item: StudyHubQuestion, isMCQ: boolean = false) => {
     const isExpanded = expandedQuestions.has(item.id);
     const isSaved = savedQuestions.has(item.id);
 
@@ -188,7 +188,7 @@ export function StudyHub() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-              <Zap className="w-6 h-6 text-indigo-500" /> Pro
+              <Zap className="w-6 h-6 text-indigo-500" /> EduScanAI
             </h1>
             <div className="flex gap-2">
               <button className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-300 transition-colors">

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import type { StudyMode, EducationalContent, DeepDiveContent } from "../types.ts";
 
 const TEXT_MODEL = "gemini-4-hydrogen";
@@ -17,6 +17,30 @@ function getAI(): GoogleGenAI {
       },
     },
   });
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 1): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      const isTransient =
+        msg.includes("503") ||
+        msg.includes("UNAVAILABLE") ||
+        msg.includes("500") ||
+        msg.includes("ECONNRESET") ||
+        msg.includes("fetch failed");
+      if (!isTransient || attempt === maxRetries) {
+        throw error;
+      }
+      const delayMs = 600 * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
 }
 
 function parseDataUrl(imageUrl: string): { data: string; mimeType: string } {
@@ -107,11 +131,11 @@ Ensure the summary is clear, accurate, and captures the core message.`;
     config.tools = [{ urlContext: {} }];
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
     config,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -121,10 +145,11 @@ export async function generateFlashcards(text: string) {
   const prompt = `Generate 5-10 flashcards based on the following text. 
 Return ONLY a JSON array of objects, where each object has a "question" and an "answer" property.`;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: prompt + `\n\nText:\n${text}`,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -138,7 +163,7 @@ Return ONLY a JSON array of objects, where each object has a "question" and an "
         },
       },
     },
-  });
+  }));
 
   const cards = JSON.parse(cleanJsonResponse(response.text || "[]")) as Array<{
     question: string;
@@ -160,10 +185,11 @@ Return ONLY a JSON array of objects. Each object must have:
 - "correctAnswer" (string, must exactly match one of the options)
 - "explanation" (string, explaining why it's correct)`;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: prompt + `\n\nText:\n${text}`,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -182,7 +208,7 @@ Return ONLY a JSON array of objects. Each object must have:
         },
       },
     },
-  });
+  }));
 
   return JSON.parse(cleanJsonResponse(response.text || "[]"));
 }
@@ -197,10 +223,11 @@ Return ONLY JSON with:
 - "flashcards": array of 4-6 flashcards, each with "front" and "back" (strings)
 - "quiz": array of 5 multiple-choice questions, each with "question" (string), "options" (array of 4 strings), "correctIndex" (integer 0-3), and "explanation" (string)`;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: prompt,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -240,7 +267,7 @@ Return ONLY JSON with:
         required: ["keyPoints", "flashcards", "quiz"],
       },
     },
-  });
+  }));
 
   return JSON.parse(cleanJsonResponse(response.text || "{}"));
 }
@@ -279,10 +306,10 @@ Rules:
     contents = prompt + `\n\nUser Question:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -321,10 +348,10 @@ Rules:
     contents = prompt + `\n\nUser Input:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -366,10 +393,10 @@ Rules:
     contents = prompt + `\n\nContent:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -406,10 +433,10 @@ Rules:
     contents = prompt + `\n\nTopic:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -450,10 +477,10 @@ Rules:
     contents = prompt + `\n\nTopic:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -525,13 +552,13 @@ Rules:
     contents = prompt + `\n\nTopic/Content:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
     config: {
       responseMimeType: "application/json",
     },
-  });
+  }));
 
   return cleanJsonResponse(response.text || "");
 }
@@ -594,13 +621,13 @@ Ensure the output is valid JSON.`;
     contents = prompt + `\n\nTopic/Content:\n${text}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
     config: {
       responseMimeType: "application/json",
     },
-  });
+  }));
 
   return cleanJsonResponse(response.text || "");
 }
@@ -631,10 +658,10 @@ Rules:
 - Provide actionable advice
 - Format clearly using Markdown`;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: prompt,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -676,10 +703,10 @@ Formatting Rules:
     contents = prompt + `\n\nTopic/Content to learn:\n${topic}`;
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents,
-  });
+  }));
 
   return response.text ?? "";
 }
@@ -689,11 +716,12 @@ export async function chatWithSummary(summary: string, question: string): Promis
   const chat = ai.chats.create({
     model: TEXT_MODEL,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       systemInstruction: `You are a helpful study assistant. Answer the user's questions based primarily on the following summary context. If the answer is not in the context, use your general knowledge but mention that it's not explicitly in the summary.\n\nContext Summary:\n${summary}`,
     },
   });
 
-  const response = await chat.sendMessage({ message: question });
+  const response = await withRetry(() => chat.sendMessage({ message: question }));
   return response.text ?? "";
 }
 
@@ -828,7 +856,7 @@ Generate fresh questions now.
 
   const prompt = `Generate educational content for the following text. Mode: ${mode}. Difficulty: ${difficulty}. ${uniquenessPrompt} Return JSON.`;
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: { parts: [{ text: `${prompt}\n\n${text}` }] },
     config: {
@@ -836,7 +864,7 @@ Generate fresh questions now.
       responseMimeType: "application/json",
       responseSchema: educationalContentSchema,
     },
-  });
+  }));
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
@@ -870,7 +898,7 @@ Generate fresh questions now.
     inlineData: { mimeType: img.mimeType, data: img.base64 },
   }));
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: {
       parts: [...imageParts, { text: prompt }],
@@ -880,7 +908,7 @@ Generate fresh questions now.
       responseMimeType: "application/json",
       responseSchema: educationalContentSchema,
     },
-  });
+  }));
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
@@ -888,7 +916,7 @@ Generate fresh questions now.
 
 export async function generateDeepDiveContentFromText(text: string): Promise<DeepDiveContent> {
   const ai = getAI();
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: {
       parts: [
@@ -902,7 +930,7 @@ export async function generateDeepDiveContentFromText(text: string): Promise<Dee
       responseMimeType: "application/json",
       responseSchema: deepDiveContentSchema,
     },
-  });
+  }));
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
@@ -910,7 +938,7 @@ export async function generateDeepDiveContentFromText(text: string): Promise<Dee
 
 export async function generateSpeech(text: string): Promise<string> {
   const ai = getAI();
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TTS_MODEL,
     contents: [
       {
@@ -926,7 +954,7 @@ export async function generateSpeech(text: string): Promise<string> {
         },
       },
     },
-  });
+  }));
 
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
   if (!base64Audio) return "";
@@ -940,10 +968,13 @@ export async function generateSpeech(text: string): Promise<string> {
 
 export async function translateText(text: string, targetLanguage: string): Promise<string> {
   const ai = getAI();
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model: TEXT_MODEL,
     contents: `Translate to ${targetLanguage}: ${text}`,
-  });
+    config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+  }));
 
   return response.text?.trim() || "";
 }

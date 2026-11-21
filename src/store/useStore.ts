@@ -9,17 +9,7 @@ export interface Note {
   summary: string;
   date: string;
   folder: string;
-  syncSource?: 'online' | 'synced';
-}
-
-export interface QueuedSummary {
-  id: string;
-  text: string;
-  url: string;
-  options: SummaryOptions;
-  createdAt: string;
-  status: 'pending' | 'syncing' | 'failed';
-  error?: string;
+  syncSource?: 'online' | 'synced' | 'local';
 }
 
 export interface Flashcard {
@@ -49,22 +39,27 @@ export interface QuizSet {
   questions: MCQ[];
 }
 
+export interface PendingSummary {
+  id: string;
+  text: string;
+  url: string;
+  options: SummaryOptions;
+  status: 'pending' | 'syncing' | 'failed';
+  error?: string;
+}
+
 interface AppState {
   notes: Note[];
   flashcardSets: FlashcardSet[];
   quizSets: QuizSet[];
-  pendingSummaries: QueuedSummary[];
+  pendingSummaries: PendingSummary[];
   addNote: (note: Note) => void;
   updateNote: (id: string, summary: string) => void;
   deleteNote: (id: string) => void;
-  addFlashcardSet: (flashcardSet: FlashcardSet) => void;
-  addQuizSet: (quizSet: QuizSet) => void;
-  enqueueSummary: (item: Omit<QueuedSummary, 'id' | 'createdAt' | 'status'>) => void;
-  updateQueuedSummaryStatus: (
-    id: string,
-    status: QueuedSummary['status'],
-    error?: string
-  ) => void;
+  addFlashcardSet: (set: FlashcardSet) => void;
+  addQuizSet: (set: QuizSet) => void;
+  enqueueSummary: (item: Omit<PendingSummary, 'id' | 'status'>) => void;
+  updateQueuedSummaryStatus: (id: string, status: PendingSummary['status'], error?: string) => void;
   removeQueuedSummary: (id: string) => void;
 }
 
@@ -80,20 +75,16 @@ export const useStore = create<AppState>()(
         set((state) => ({
           notes: state.notes.map((n) => (n.id === id ? { ...n, summary } : n)),
         })),
-      deleteNote: (id) =>
-        set((state) => ({ notes: state.notes.filter((n) => n.id !== id) })),
-      addFlashcardSet: (flashcardSet) =>
-        set((state) => ({ flashcardSets: [flashcardSet, ...state.flashcardSets] })),
-      addQuizSet: (quizSet) =>
-        set((state) => ({ quizSets: [quizSet, ...state.quizSets] })),
+      deleteNote: (id) => set((state) => ({ notes: state.notes.filter(n => n.id !== id) })),
+      addFlashcardSet: (flashcardSet) => set((state) => ({ flashcardSets: [flashcardSet, ...state.flashcardSets] })),
+      addQuizSet: (quizSet) => set((state) => ({ quizSets: [quizSet, ...state.quizSets] })),
       enqueueSummary: (item) =>
         set((state) => ({
           pendingSummaries: [
             ...state.pendingSummaries,
             {
               ...item,
-              id: `queue-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              createdAt: new Date().toISOString(),
+              id: Date.now().toString(),
               status: 'pending',
             },
           ],
@@ -111,6 +102,17 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'ai-summary-storage',
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<AppState>;
+        return {
+          ...currentState,
+          ...persisted,
+          notes: Array.isArray(persisted.notes) ? persisted.notes : [],
+          flashcardSets: Array.isArray(persisted.flashcardSets) ? persisted.flashcardSets : [],
+          quizSets: Array.isArray(persisted.quizSets) ? persisted.quizSets : [],
+          pendingSummaries: Array.isArray(persisted.pendingSummaries) ? persisted.pendingSummaries : [],
+        };
+      },
     }
   )
 );
