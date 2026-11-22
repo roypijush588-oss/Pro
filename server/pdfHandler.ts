@@ -11,7 +11,7 @@ import {
   isBlockedHost,
   readJsonBody,
   sendText,
-} from './httpUtils.ts';
+} from './httpUtils';
 
 const PDF_TIMEOUT_MS = 45_000;
 
