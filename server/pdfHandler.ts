@@ -3,15 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import chromium from '@sparticuz/chromium';
 import puppeteer, { type Browser } from 'puppeteer-core';
+import type { ApiRequest, ApiResponse } from './httpUtils.ts';
 import {
-  ApiRequest,
-  ApiResponse,
   HttpError,
   handlePreflight,
   isBlockedHost,
   readJsonBody,
   sendText,
-} from './httpUtils';
+} from './httpUtils.ts';
 
 const PDF_TIMEOUT_MS = 45_000;
 

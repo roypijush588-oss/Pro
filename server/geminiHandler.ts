@@ -19,17 +19,16 @@ import {
   generateSpeech,
   translateText,
   type SummaryOptions,
-} from './gemini';
+} from './gemini.ts';
 import type { StudyMode } from '../types.ts';
+import type { ApiRequest, ApiResponse } from './httpUtils.ts';
 import {
-  ApiRequest,
-  ApiResponse,
   HttpError,
   handlePreflight,
   readJsonBody,
   sendJson,
   validatePublicHttpUrl,
-} from './httpUtils';
+} from './httpUtils.ts';
 
 const GEMINI_REQUEST_TIMEOUT_MS = 55_000;
 

@@ -1,4 +1,4 @@
-import { handleGeminiRequest } from '../../server/geminiHandler';
+import { handleGeminiRequest } from '../../server/geminiHandler.ts';
 import type { ApiRequest, ApiResponse } from '../../server/httpUtils.ts';
 
 function extractEndpoint(req: ApiRequest): string {

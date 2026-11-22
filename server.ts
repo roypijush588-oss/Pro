@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { handleGeminiRequest } from './server/geminiHandler';
-import { handlePdfRequest } from './server/pdfHandler';
+import { handleGeminiRequest } from './server/geminiHandler.ts';
+import { handlePdfRequest } from './server/pdfHandler.ts';
 
 const app = express();
 const PORT = 3000;

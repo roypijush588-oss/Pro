@@ -5,9 +5,11 @@
   "outputDirectory": "dist",
   "functions": {
     "api/gemini/[endpoint].ts": {
+      "includeFiles": "server/**/*.ts",
       "maxDuration": 60
     },
     "api/generate-pdf.ts": {
+      "includeFiles": "server/**/*.ts",
       "maxDuration": 60,
       "memory": 1024
     }

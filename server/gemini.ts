@@ -556,6 +556,7 @@ Rules:
     model: TEXT_MODEL,
     contents,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
     },
   }));
@@ -625,6 +626,7 @@ Ensure the output is valid JSON.`;
     model: TEXT_MODEL,
     contents,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
     },
   }));
