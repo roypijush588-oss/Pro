@@ -5,7 +5,7 @@ import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { chatWithSummary } from '../lib/gemini';
+import { chatWithSummary, formatGeminiErrorMessage } from '../lib/gemini';
 import html2pdf from 'html2pdf.js';
 
 interface NoteViewProps {
@@ -90,8 +90,8 @@ export function NoteView({ noteId }: NoteViewProps) {
     try {
       const reply = await chatWithSummary(note.summary, userMsg);
       setMessages(prev => [...prev, { role: 'ai', content: reply }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'ai', content: "Sorry, I couldn't process that request." }]);
+    } catch (error: unknown) {
+      setMessages(prev => [...prev, { role: 'ai', content: formatGeminiErrorMessage(error, "Sorry, I couldn't process that request.") }]);
     } finally {
       setIsChatting(false);
     }

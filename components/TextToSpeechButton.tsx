@@ -1,6 +1,10 @@
 
 import React, { useState, useRef } from 'react';
-import { generateSpeech } from '../services/geminiService';
+import {
+  generateSpeech,
+  getGeminiErrorMessage,
+  isRetryableGeminiError,
+} from '../services/geminiService';
 import { decode, decodeAudioData } from '../utils/audioUtils';
 import { SpeakerWaveIcon, SpeakerXMarkIcon, XCircleIcon } from './icons';
 
@@ -12,11 +16,14 @@ const TextToSpeechButton: React.FC<TextToSpeechButtonProps> = ({ textToSpeak }) 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const inFlightRef = useRef(false);
 
   const handlePlayAudio = async () => {
     setAudioError(null);
+    setCanRetry(false);
 
     if (isPlaying && sourceRef.current) {
         sourceRef.current.stop();
@@ -24,6 +31,9 @@ const TextToSpeechButton: React.FC<TextToSpeechButtonProps> = ({ textToSpeak }) 
         return;
     }
 
+    if (inFlightRef.current || isGenerating) return;
+
+    inFlightRef.current = true;
     setIsGenerating(true);
     try {
         const audioBase64 = await generateSpeech(textToSpeak);
@@ -51,13 +61,10 @@ const TextToSpeechButton: React.FC<TextToSpeechButtonProps> = ({ textToSpeak }) 
         setIsPlaying(true);
     } catch (error) {
         console.error("Failed to play audio:", error);
-        if (error instanceof Error) {
-            setAudioError(error.message);
-        } else {
-            setAudioError("An unknown error occurred while generating audio.");
-        }
-        setTimeout(() => setAudioError(null), 5000);
+        setAudioError(getGeminiErrorMessage(error, "An unknown error occurred while generating audio."));
+        setCanRetry(isRetryableGeminiError(error));
     } finally {
+        inFlightRef.current = false;
         setIsGenerating(false);
     }
   };
@@ -88,10 +95,20 @@ const TextToSpeechButton: React.FC<TextToSpeechButtonProps> = ({ textToSpeak }) 
         )}
         </button>
         {audioError && (
-        <p className="mt-2 text-sm text-red-400 flex items-center gap-2">
-            <XCircleIcon className="w-5 h-5" />
+        <div className="mt-2 text-sm text-red-400 flex items-center gap-2 flex-wrap">
+            <XCircleIcon className="w-5 h-5 shrink-0" />
             <span>{audioError}</span>
-        </p>
+            {canRetry && (
+              <button
+                type="button"
+                onClick={handlePlayAudio}
+                disabled={isGenerating}
+                className="px-2 py-0.5 bg-red-900/40 hover:bg-red-800/60 border border-red-400/40 text-red-200 rounded text-xs font-medium"
+              >
+                Retry
+              </button>
+            )}
+        </div>
         )}
     </div>
   );

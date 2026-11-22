@@ -15,27 +15,28 @@ const QuestionAccordion: React.FC<QuestionAccordionProps> = ({ qaPair }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('English');
   const [isTranslating, setIsTranslating] = useState(false);
-  const [translatedContent, setTranslatedContent] = useState<Question | null>(null);
+  const [translationCache, setTranslationCache] = useState<Partial<Record<Language, Question>>>({});
+  const [translationError, setTranslationError] = useState<string | null>(null);
 
   const originalContent = useMemo(() => qaPair, [qaPair]);
 
   useEffect(() => {
     // Reset state if the underlying qaPair changes
     setSelectedLanguage('English');
-    setTranslatedContent(null);
+    setTranslationCache({});
+    setTranslationError(null);
     setIsTranslating(false);
   }, [qaPair]);
 
   const handleLanguageChange = async (lang: Language) => {
     setSelectedLanguage(lang);
+    setTranslationError(null);
     if (lang === 'English') {
-      setTranslatedContent(null);
       return;
     }
-    
-    // Check cache first
-    if (translatedContent && translatedContent.question.startsWith(`[${lang}]`)) {
-        return;
+
+    if (translationCache[lang]) {
+      return;
     }
 
     setIsTranslating(true);
@@ -44,17 +45,20 @@ const QuestionAccordion: React.FC<QuestionAccordionProps> = ({ qaPair }) => {
         translateText(originalContent.question, lang),
         originalContent.answer ? translateText(originalContent.answer, lang) : Promise.resolve('')
       ]);
-      setTranslatedContent({ question: `[${lang}]` + translatedQuestion, answer: translatedAnswer });
+      setTranslationCache((prev) => ({
+        ...prev,
+        [lang]: { question: translatedQuestion, answer: translatedAnswer },
+      }));
     } catch (error) {
       console.error("Translation failed:", error);
-      // Optionally show an error message to the user
+      setTranslationError(error instanceof Error ? error.message : 'Translation failed. Please try again.');
       setSelectedLanguage('English'); // Revert on failure
     } finally {
       setIsTranslating(false);
     }
   };
 
-  const displayContent = selectedLanguage === 'English' ? originalContent : (translatedContent || originalContent);
+  const displayContent = selectedLanguage === 'English' ? originalContent : (translationCache[selectedLanguage] || originalContent);
   
   return (
     <details className="group bg-gray-700 rounded-lg overflow-hidden transition-all duration-300 relative" onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}>
@@ -69,6 +73,9 @@ const QuestionAccordion: React.FC<QuestionAccordionProps> = ({ qaPair }) => {
       </summary>
       <div className="p-4 border-t border-gray-600 bg-gray-800">
         <p className="text-gray-300 whitespace-pre-wrap">{isTranslating ? 'Translating...' : (displayContent.answer || 'No answer available.')}</p>
+        {translationError && (
+          <p className="mt-2 text-xs text-red-400">{translationError}</p>
+        )}
         
         <div className="mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <TextToSpeechButton textToSpeak={displayContent.answer || ''} />

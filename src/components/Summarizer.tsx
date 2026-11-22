@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Type, Image as ImageIcon, Link as LinkIcon, Loader2, Settings2 } from 'lucide-react';
-import { generateSummary, SummaryOptions } from '../lib/gemini';
+import { generateSummary, formatGeminiErrorMessage, SummaryOptions } from '../lib/gemini';
 import { Note } from '../store/useStore';
 
 interface SummarizerProps {
@@ -14,6 +14,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
   const [imageUrl, setImageUrl] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [options, setOptions] = useState<SummaryOptions>({
@@ -37,6 +38,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
   const handleSummarize = async () => {
     if (!text && !url && !imageUrl) return;
     
+    setErrorMessage(null);
     setIsProcessing(true);
     try {
       const summaryText = await generateSummary(text, options, imageUrl, url);
@@ -53,12 +55,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
       onSummaryComplete(newNote);
     } catch (error: unknown) {
       console.error("Summarization failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        alert("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        alert("Failed to generate summary. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate summary. Please try again."));
     } finally {
       setIsProcessing(false);
     }
@@ -188,6 +185,12 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
           </button>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-2xl px-4 py-3 text-sm">
+          {errorMessage}
+        </div>
+      )}
 
       {/* Expandable Options */}
       {showOptions && (

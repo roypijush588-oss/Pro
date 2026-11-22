@@ -1,22 +1,27 @@
+import { createHash } from 'node:crypto';
 import {
-  generateSummary,
+  QuotaExceededError,
+  analyzePerformance,
+  chatWithSummary,
+  createNotes,
+  formatQuotaExceededMessage,
+  generateDeepDiveContentFromText,
+  generateEducationalContentFromImage,
+  generateEducationalContentFromText,
   generateFlashcards,
+  generatePractice,
+  generateQuestions,
   generateQuiz,
   generateInteractiveStudy,
-  solveHomework,
-  createNotes,
-  generateQuestions,
   generateRevisionContent,
-  generatePractice,
+  generateSpeech,
   generateStructuredPractice,
   generateStructuredQuestions,
-  analyzePerformance,
   generateStudyLesson,
-  chatWithSummary,
-  generateEducationalContentFromText,
-  generateEducationalContentFromImage,
-  generateDeepDiveContentFromText,
-  generateSpeech,
+  generateSummary,
+  isQuotaErrorMessage,
+  parseRetryAfterSeconds,
+  solveHomework,
   translateText,
   type SummaryOptions,
 } from './gemini.ts';
@@ -31,6 +36,17 @@ import {
 } from './httpUtils.ts';
 
 const GEMINI_REQUEST_TIMEOUT_MS = 55_000;
+const RESPONSE_CACHE_TTL_MS = 30 * 60_000;
+const MAX_CACHE_ENTRIES = 150;
+const MAX_CACHEABLE_SERIALIZED_LENGTH = 512_000;
+
+interface CacheEntry {
+  value: unknown;
+  expiresAt: number;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
 
 const DEFAULT_SUMMARY_OPTIONS: SummaryOptions = {
   length: '50%',
@@ -38,6 +54,43 @@ const DEFAULT_SUMMARY_OPTIONS: SummaryOptions = {
   mode: 'Study notes',
   language: 'English',
 };
+
+function computeCacheKey(endpoint: string, body: Record<string, unknown>): string {
+  const stableJson = JSON.stringify({ endpoint, body });
+  return createHash('sha256').update(stableJson).digest('hex');
+}
+
+function getCachedResponse(key: string): { hit: boolean; value?: unknown } {
+  const entry = responseCache.get(key);
+  if (!entry) return { hit: false };
+  if (Date.now() > entry.expiresAt) {
+    responseCache.delete(key);
+    return { hit: false };
+  }
+  // Refresh LRU order
+  responseCache.delete(key);
+  responseCache.set(key, entry);
+  return { hit: true, value: entry.value };
+}
+
+function setCachedResponse(key: string, value: unknown): void {
+  if (value === undefined || value === null || value === '') return;
+  try {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    if (!serialized || serialized.length > MAX_CACHEABLE_SERIALIZED_LENGTH) return;
+  } catch {
+    return;
+  }
+
+  if (responseCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = responseCache.keys().next().value;
+    if (oldestKey) responseCache.delete(oldestKey);
+  }
+  responseCache.set(key, {
+    value,
+    expiresAt: Date.now() + RESPONSE_CACHE_TTL_MS,
+  });
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -74,8 +127,20 @@ function asOptionalString(value: unknown): string | undefined {
 export function sendGeminiError(res: ApiResponse, error: unknown): void {
   console.error('Gemini API Error:', error);
 
+  if (error instanceof QuotaExceededError) {
+    if (error.retryAfterSeconds) {
+      res.setHeader('Retry-After', String(error.retryAfterSeconds));
+    }
+    sendJson(res, 429, {
+      error: error.message,
+      code: 429,
+      retryAfterSeconds: error.retryAfterSeconds,
+    });
+    return;
+  }
+
   if (error instanceof HttpError) {
-    sendJson(res, error.statusCode, { error: error.message });
+    sendJson(res, error.statusCode, { error: error.message, code: error.statusCode });
     return;
   }
 
@@ -84,36 +149,59 @@ export function sendGeminiError(res: ApiResponse, error: unknown): void {
   if (rawMessage.includes('GEMINI_API_KEY is not configured')) {
     sendJson(res, 503, {
       error:
-        'Server configuration error: GEMINI_API_KEY is not configured. Add GEMINI_API_KEY in your Vercel project Environment Variables and redeploy.',
+        'Server configuration error: GEMINI_API_KEY is not configured. Add GEMINI_API_KEY in Settings > Secrets or your Vercel Environment Variables.',
+      code: 503,
     });
     return;
   }
 
   if (rawMessage.includes('Invalid image data URL')) {
-    sendJson(res, 400, { error: rawMessage });
+    sendJson(res, 400, { error: rawMessage, code: 400 });
     return;
   }
 
   if (rawMessage.includes('timed out') || rawMessage.includes('ETIMEDOUT') || rawMessage.includes('ABORT_ERR')) {
-    sendJson(res, 504, { error: 'The Gemini API request timed out. Please try again.' });
+    sendJson(res, 504, { error: 'The Gemini API request timed out. Please try again.', code: 504 });
+    return;
+  }
+
+  if (isQuotaErrorMessage(rawMessage)) {
+    const retryAfterSeconds = parseRetryAfterSeconds(rawMessage);
+    if (retryAfterSeconds) {
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+    }
+    sendJson(res, 429, {
+      error: formatQuotaExceededMessage(rawMessage, retryAfterSeconds),
+      code: 429,
+      retryAfterSeconds,
+    });
+    return;
+  }
+
+  if (rawMessage.includes('API_KEY_INVALID') || rawMessage.includes('API key not valid')) {
+    sendJson(res, 400, {
+      error: 'The configured API key is invalid. Please check GEMINI_API_KEY in Settings > Secrets.',
+      code: 400,
+    });
+    return;
+  }
+
+  if (rawMessage.includes('PERMISSION_DENIED') || rawMessage.includes('403')) {
+    sendJson(res, 403, {
+      error: 'Permission denied for Gemini API. Please check your API key in Settings > Secrets.',
+      code: 403,
+    });
     return;
   }
 
   const statusMatch = rawMessage.match(/\b(400|401|403|404|429|500|503)\b/);
-  const status =
-    rawMessage.includes('RESOURCE_EXHAUSTED') || rawMessage.includes('429')
-      ? 429
-      : rawMessage.includes('PERMISSION_DENIED') || rawMessage.includes('403')
-        ? 403
-        : rawMessage.includes('API_KEY_INVALID') || rawMessage.includes('400')
-          ? 400
-          : rawMessage.includes('NOT_FOUND') || rawMessage.includes('404')
-            ? 404
-            : statusMatch
-              ? Number(statusMatch[1])
-              : 500;
+  const status = rawMessage.includes('NOT_FOUND') || rawMessage.includes('404')
+    ? 404
+    : statusMatch
+      ? Number(statusMatch[1])
+      : 500;
 
-  sendJson(res, status, { error: rawMessage });
+  sendJson(res, status, { error: rawMessage, code: status });
 }
 
 export async function dispatchGeminiEndpoint(
@@ -330,10 +418,30 @@ export async function handleGeminiRequest(
 
   try {
     const body = await readJsonBody<Record<string, unknown>>(req);
-    const result = await withTimeout(
-      dispatchGeminiEndpoint(endpoint, body),
-      GEMINI_REQUEST_TIMEOUT_MS
-    );
+    const cacheKey = computeCacheKey(endpoint, body);
+    const cached = getCachedResponse(cacheKey);
+    if (cached.hit) {
+      sendJson(res, 200, { result: cached.value, cached: true });
+      return;
+    }
+
+    let pending = inFlightRequests.get(cacheKey);
+    if (!pending) {
+      pending = withTimeout(
+        dispatchGeminiEndpoint(endpoint, body),
+        GEMINI_REQUEST_TIMEOUT_MS
+      )
+        .then((result) => {
+          setCachedResponse(cacheKey, result);
+          return result;
+        })
+        .finally(() => {
+          inFlightRequests.delete(cacheKey);
+        });
+      inFlightRequests.set(cacheKey, pending);
+    }
+
+    const result = await pending;
     sendJson(res, 200, { result });
   } catch (error) {
     sendGeminiError(res, error);

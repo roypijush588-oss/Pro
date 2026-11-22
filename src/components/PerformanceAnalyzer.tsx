@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Loader2, TrendingUp, Download, WifiOff } from 'lucide-react';
-import { analyzePerformance } from '../lib/gemini';
+import { analyzePerformance, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -33,12 +33,7 @@ export function PerformanceAnalyzer() {
       setAnalysis(result || "Could not generate performance analysis.");
     } catch (error: unknown) {
       console.error("Analysis failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to analyze performance. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to analyze performance. Please try again."));
     } finally {
       setIsProcessing(false);
     }

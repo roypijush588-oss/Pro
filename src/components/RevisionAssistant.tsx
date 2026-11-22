@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Type, Image as ImageIcon, Loader2, Zap, Download, WifiOff } from 'lucide-react';
-import { generateRevisionContent } from '../lib/gemini';
+import { generateRevisionContent, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -45,12 +45,7 @@ export function RevisionAssistant() {
       setRevisionContent(result || "Could not generate revision content.");
     } catch (error: unknown) {
       console.error("Revision generation failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate revision content. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate revision content. Please try again."));
     } finally {
       setIsProcessing(false);
     }

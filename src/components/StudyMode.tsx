@@ -4,7 +4,7 @@ import {
   Lightbulb, Type, Image as ImageIcon, Loader2, 
   Sparkles, Download, BookOpen, ChevronRight, WifiOff, Check
 } from 'lucide-react';
-import { generateStudyLesson } from '../lib/gemini';
+import { generateStudyLesson, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useStore } from '../store/useStore';
 import Markdown from 'react-markdown';
@@ -87,12 +87,7 @@ export function StudyMode({ onStartPractice }: StudyModeProps) {
       setLesson(result || "Could not generate a lesson.");
     } catch (error: unknown) {
       console.error("Lesson generation failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate lesson. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate lesson. Please try again."));
     } finally {
       setIsProcessing(false);
     }

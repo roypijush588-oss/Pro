@@ -1,8 +1,28 @@
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
+import type { GenerateContentConfig, GenerateContentParameters } from "@google/genai";
 import type { StudyMode, EducationalContent, DeepDiveContent } from "../types.ts";
 
-const TEXT_MODEL = "gemini-4-hydrogen";
+const PRIMARY_TEXT_MODEL = "gemini-4-hydrogen";
+const FALLBACK_TEXT_MODEL = "gemini-3.1-flash-lite";
 const TTS_MODEL = "gemini-3.8-flash-lite-tts";
+
+// Track per-model quota cooldowns so an exhausted model is skipped immediately
+// without burning additional latency or failed requests.
+const modelCooldownUntil = new Map<string, number>();
+
+export class QuotaExceededError extends Error {
+  statusCode: number;
+  retryAfterSeconds?: number;
+  model?: string;
+
+  constructor(message: string, retryAfterSeconds?: number, model?: string) {
+    super(message);
+    this.name = "QuotaExceededError";
+    this.statusCode = 429;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.model = model;
+  }
+}
 
 function getAI(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -19,6 +39,85 @@ function getAI(): GoogleGenAI {
   });
 }
 
+export function isQuotaErrorMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("RESOURCE_EXHAUSTED") ||
+    lower.includes("quota") ||
+    lower.includes("rate limit") ||
+    lower.includes("too many requests")
+  );
+}
+
+export function parseRetryAfterSeconds(message: string): number | undefined {
+  const retryDelayJson = message.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i);
+  if (retryDelayJson) {
+    return Math.max(1, Math.ceil(Number(retryDelayJson[1])));
+  }
+
+  const humanRetry = message.match(/retry in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(\d+(?:\.\d+)?)s/i);
+  if (humanRetry) {
+    const hours = Number(humanRetry[1] || 0);
+    const minutes = Number(humanRetry[2] || 0);
+    const seconds = Number(humanRetry[3] || 0);
+    const total = Math.ceil(hours * 3600 + minutes * 60 + seconds);
+    if (total > 0) return total;
+  }
+
+  return undefined;
+}
+
+export function formatWaitDuration(seconds?: number): string | null {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.ceil(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+}
+
+export function formatQuotaExceededMessage(rawMessage: string, retryAfterSeconds?: number): string {
+  const wait = formatWaitDuration(retryAfterSeconds);
+  const isDaily = rawMessage.includes("GenerateRequestsPerDay") || (retryAfterSeconds !== undefined && retryAfterSeconds >= 300);
+  const scopeLabel = isDaily ? "Daily API quota limit reached" : "API rate limit reached";
+  const waitPart = wait ? ` Please retry in ~${wait}.` : " Please wait a moment and try again.";
+  return `${scopeLabel} (429 RESOURCE_EXHAUSTED).${waitPart} Upgrading to a paid tier increases your quota — you can select a billing-enabled API key in Settings > Secrets (or update GEMINI_API_KEY in your deployment environment).`;
+}
+
+function recordModelCooldown(model: string, rawMessage: string): number | undefined {
+  const retryAfterSeconds = parseRetryAfterSeconds(rawMessage);
+  const isDaily = rawMessage.includes("GenerateRequestsPerDay") || (retryAfterSeconds !== undefined && retryAfterSeconds >= 120);
+  // Cap in-memory server cooldown to 15 minutes so an env/key update recovers cleanly,
+  // while immediately routing traffic away from an exhausted model in the meantime.
+  const cooldownMs = isDaily
+    ? Math.min((retryAfterSeconds ?? 900) * 1000, 15 * 60_000)
+    : Math.min((retryAfterSeconds ?? 30) * 1000, 120_000);
+  modelCooldownUntil.set(model, Date.now() + cooldownMs);
+  return retryAfterSeconds;
+}
+
+function isNonFallbackAuthError(message: string): boolean {
+  return (
+    message.includes("GEMINI_API_KEY is not configured") ||
+    message.includes("API_KEY_INVALID") ||
+    message.includes("PERMISSION_DENIED") ||
+    message.includes("API key not valid")
+  );
+}
+
+function isTransientError(message: string): boolean {
+  return (
+    message.includes("503") ||
+    message.includes("UNAVAILABLE") ||
+    message.includes("500") ||
+    message.includes("ECONNRESET") ||
+    message.includes("fetch failed") ||
+    message.includes("ETIMEDOUT")
+  );
+}
+
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 1): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -27,19 +126,131 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 1): Promise<T> {
     } catch (error) {
       lastError = error;
       const msg = error instanceof Error ? error.message : String(error);
-      const isTransient =
-        msg.includes("503") ||
-        msg.includes("UNAVAILABLE") ||
-        msg.includes("500") ||
-        msg.includes("ECONNRESET") ||
-        msg.includes("fetch failed");
-      if (!isTransient || attempt === maxRetries) {
+      if (isQuotaErrorMessage(msg) || isNonFallbackAuthError(msg)) {
+        throw error;
+      }
+      if (!isTransientError(msg) || attempt === maxRetries) {
         throw error;
       }
       const delayMs = 600 * Math.pow(2, attempt);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
+  throw lastError;
+}
+
+function buildModelConfig(
+  model: string,
+  baseConfig?: GenerateContentConfig
+): GenerateContentConfig | undefined {
+  if (model === PRIMARY_TEXT_MODEL) {
+    return {
+      ...baseConfig,
+      thinkingConfig: baseConfig?.thinkingConfig ?? { thinkingLevel: ThinkingLevel.LOW },
+    };
+  }
+  // gemini-3.1-flash-lite defaults to ThinkingLevel.MINIMAL (lowest latency/token usage).
+  if (!baseConfig) return undefined;
+  const { thinkingConfig: _ignored, ...rest } = baseConfig;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+function withAttemptTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("ETIMEDOUT: Model attempt timed out."));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+async function generateContentWithFallback(
+  params: {
+    contents: GenerateContentParameters["contents"];
+    config?: GenerateContentConfig;
+    preferLite?: boolean;
+  }
+) {
+  const ai = getAI();
+  const candidates = params.preferLite
+    ? [FALLBACK_TEXT_MODEL, PRIMARY_TEXT_MODEL]
+    : [PRIMARY_TEXT_MODEL, FALLBACK_TEXT_MODEL];
+
+  const now = Date.now();
+  const activeCandidates = candidates.filter((m) => (modelCooldownUntil.get(m) ?? 0) <= now);
+
+  if (activeCandidates.length === 0) {
+    const earliestExpiry = Math.min(
+      ...candidates.map((m) => modelCooldownUntil.get(m) ?? now + 30_000)
+    );
+    const waitSeconds = Math.max(1, Math.ceil((earliestExpiry - now) / 1000));
+    throw new QuotaExceededError(
+      formatQuotaExceededMessage("", waitSeconds),
+      waitSeconds
+    );
+  }
+
+  let lastError: unknown;
+  let lastQuotaRetrySeconds: number | undefined;
+  let lastQuotaRawMessage = "";
+
+  for (let idx = 0; idx < activeCandidates.length; idx++) {
+    const model = activeCandidates[idx];
+    const hasFallback = idx < activeCandidates.length - 1;
+    try {
+      const config = buildModelConfig(model, params.config);
+      const executeAttempt = () =>
+        withRetry(() =>
+          ai.models.generateContent({
+            model,
+            contents: params.contents,
+            ...(config ? { config } : {}),
+          })
+        );
+      return await (hasFallback
+        ? withAttemptTimeout(executeAttempt(), 22_000)
+        : executeAttempt());
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+
+      if (isNonFallbackAuthError(msg)) {
+        throw error;
+      }
+
+      if (isQuotaErrorMessage(msg)) {
+        lastQuotaRawMessage = msg;
+        lastQuotaRetrySeconds = recordModelCooldown(model, msg);
+        continue;
+      }
+
+      if (isTransientError(msg)) {
+        if (hasFallback) {
+          modelCooldownUntil.set(model, Date.now() + 60_000);
+        }
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  if (lastQuotaRawMessage) {
+    throw new QuotaExceededError(
+      formatQuotaExceededMessage(lastQuotaRawMessage, lastQuotaRetrySeconds),
+      lastQuotaRetrySeconds
+    );
+  }
+
   throw lastError;
 }
 
@@ -96,7 +307,6 @@ export async function generateSummary(
   imageUrl?: string,
   url?: string
 ): Promise<string> {
-  const ai = getAI();
   let prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Summarize the provided content based on the following preferences:
@@ -126,27 +336,24 @@ Ensure the summary is clear, accurate, and captures the core message.`;
     contents = prompt + `\n\nContent to summarize:\n${text}`;
   }
 
-  const config: { tools?: { urlContext: Record<string, never> }[] } = {};
+  const config: GenerateContentConfig = {};
   if (url) {
     config.tools = [{ urlContext: {} }];
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
     config,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generateFlashcards(text: string) {
-  const ai = getAI();
   const prompt = `Generate 5-10 flashcards based on the following text. 
 Return ONLY a JSON array of objects, where each object has a "question" and an "answer" property.`;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: prompt + `\n\nText:\n${text}`,
     config: {
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -163,7 +370,7 @@ Return ONLY a JSON array of objects, where each object has a "question" and an "
         },
       },
     },
-  }));
+  });
 
   const cards = JSON.parse(cleanJsonResponse(response.text || "[]")) as Array<{
     question: string;
@@ -177,7 +384,6 @@ Return ONLY a JSON array of objects, where each object has a "question" and an "
 }
 
 export async function generateQuiz(text: string) {
-  const ai = getAI();
   const prompt = `Generate a 5-question multiple choice quiz based on the following text.
 Return ONLY a JSON array of objects. Each object must have:
 - "question" (string)
@@ -185,8 +391,7 @@ Return ONLY a JSON array of objects. Each object must have:
 - "correctAnswer" (string, must exactly match one of the options)
 - "explanation" (string, explaining why it's correct)`;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: prompt + `\n\nText:\n${text}`,
     config: {
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -208,13 +413,12 @@ Return ONLY a JSON array of objects. Each object must have:
         },
       },
     },
-  }));
+  });
 
   return JSON.parse(cleanJsonResponse(response.text || "[]"));
 }
 
 export async function generateInteractiveStudy(topic: string) {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Create an interactive study set for the topic "${topic}".
@@ -223,8 +427,7 @@ Return ONLY JSON with:
 - "flashcards": array of 4-6 flashcards, each with "front" and "back" (strings)
 - "quiz": array of 5 multiple-choice questions, each with "question" (string), "options" (array of 4 strings), "correctIndex" (integer 0-3), and "explanation" (string)`;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: prompt,
     config: {
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -267,13 +470,12 @@ Return ONLY JSON with:
         required: ["keyPoints", "flashcards", "quiz"],
       },
     },
-  }));
+  });
 
   return JSON.parse(cleanJsonResponse(response.text || "{}"));
 }
 
 export async function solveHomework(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Solve the user's homework question from text or extracted image input. Detect the subject automatically.
@@ -306,16 +508,14 @@ Rules:
     contents = prompt + `\n\nUser Question:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function createNotes(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Convert the given content into clean, structured notes.
@@ -348,16 +548,14 @@ Rules:
     contents = prompt + `\n\nUser Input:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generateQuestions(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Generate practice questions based on the provided content.
@@ -393,16 +591,14 @@ Rules:
     contents = prompt + `\n\nContent:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generateRevisionContent(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Create quick revision content from the given topic.
@@ -433,16 +629,14 @@ Rules:
     contents = prompt + `\n\nTopic:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generatePractice(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Generate a mix of questions from the given topic.
@@ -477,16 +671,14 @@ Rules:
     contents = prompt + `\n\nTopic:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generateStructuredPractice(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Generate a structured JSON response containing practice questions based on the user's request.
@@ -552,20 +744,18 @@ Rules:
     contents = prompt + `\n\nTopic/Content:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
     config: {
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
     },
-  }));
+  });
 
   return cleanJsonResponse(response.text || "");
 }
 
 export async function generateStructuredQuestions(text: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Generate a structured JSON response containing study questions based on the user's request.
@@ -622,14 +812,13 @@ Ensure the output is valid JSON.`;
     contents = prompt + `\n\nTopic/Content:\n${text}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
     config: {
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseMimeType: "application/json",
     },
-  }));
+  });
 
   return cleanJsonResponse(response.text || "");
 }
@@ -639,7 +828,6 @@ export async function analyzePerformance(
   correct: string,
   wrong: string
 ): Promise<string> {
-  const ai = getAI();
   const prompt = `You are an AI student performance analyzer.
 
 Analyze the student's performance.
@@ -660,16 +848,14 @@ Rules:
 - Provide actionable advice
 - Format clearly using Markdown`;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: prompt,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function generateStudyLesson(topic: string, imageUrl?: string): Promise<string> {
-  const ai = getAI();
   const prompt = `${BASE_SYSTEM_PROMPT}
 
 Task: Create a comprehensive, highly structured study lesson on the given topic, formatted EXACTLY like a premium textbook chapter.
@@ -705,26 +891,73 @@ Formatting Rules:
     contents = prompt + `\n\nTopic/Content to learn:\n${topic}`;
   }
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents,
-  }));
+  });
 
   return response.text ?? "";
 }
 
 export async function chatWithSummary(summary: string, question: string): Promise<string> {
   const ai = getAI();
-  const chat = ai.chats.create({
-    model: TEXT_MODEL,
-    config: {
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      systemInstruction: `You are a helpful study assistant. Answer the user's questions based primarily on the following summary context. If the answer is not in the context, use your general knowledge but mention that it's not explicitly in the summary.\n\nContext Summary:\n${summary}`,
-    },
-  });
+  const candidates = [FALLBACK_TEXT_MODEL, PRIMARY_TEXT_MODEL];
+  const now = Date.now();
+  const activeCandidates = candidates.filter((m) => (modelCooldownUntil.get(m) ?? 0) <= now);
 
-  const response = await withRetry(() => chat.sendMessage({ message: question }));
-  return response.text ?? "";
+  if (activeCandidates.length === 0) {
+    const earliestExpiry = Math.min(
+      ...candidates.map((m) => modelCooldownUntil.get(m) ?? now + 30_000)
+    );
+    const waitSeconds = Math.max(1, Math.ceil((earliestExpiry - now) / 1000));
+    throw new QuotaExceededError(
+      formatQuotaExceededMessage("", waitSeconds),
+      waitSeconds
+    );
+  }
+
+  let lastError: unknown;
+  let lastQuotaRetrySeconds: number | undefined;
+  let lastQuotaRawMessage = "";
+
+  for (const model of activeCandidates) {
+    try {
+      const chat = ai.chats.create({
+        model,
+        config: {
+          ...(model === PRIMARY_TEXT_MODEL
+            ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+            : {}),
+          systemInstruction: `You are a helpful study assistant. Answer the user's questions based primarily on the following summary context. If the answer is not in the context, use your general knowledge but mention that it's not explicitly in the summary.\n\nContext Summary:\n${summary}`,
+        },
+      });
+      const response = await withRetry(() => chat.sendMessage({ message: question }));
+      return response.text ?? "";
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      if (isNonFallbackAuthError(msg)) {
+        throw error;
+      }
+      if (isQuotaErrorMessage(msg)) {
+        lastQuotaRawMessage = msg;
+        lastQuotaRetrySeconds = recordModelCooldown(model, msg);
+        continue;
+      }
+      if (isTransientError(msg)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (lastQuotaRawMessage) {
+    throw new QuotaExceededError(
+      formatQuotaExceededMessage(lastQuotaRawMessage, lastQuotaRetrySeconds),
+      lastQuotaRetrySeconds
+    );
+  }
+
+  throw lastError;
 }
 
 const educationalContentSchema = {
@@ -845,7 +1078,6 @@ export async function generateEducationalContentFromText(
   difficulty: "Easy" | "Medium" | "Hard" = "Medium",
   previousTopics: string[] = []
 ): Promise<EducationalContent> {
-  const ai = getAI();
   const uniquenessPrompt = `
 Generate a new UNIQUE set of questions.
 Important:
@@ -858,15 +1090,14 @@ Generate fresh questions now.
 
   const prompt = `Generate educational content for the following text. Mode: ${mode}. Difficulty: ${difficulty}. ${uniquenessPrompt} Return JSON.`;
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: { parts: [{ text: `${prompt}\n\n${text}` }] },
     config: {
       systemInstruction: EDUSCAN_SYSTEM_INSTRUCTION,
       responseMimeType: "application/json",
       responseSchema: educationalContentSchema,
     },
-  }));
+  });
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
@@ -879,7 +1110,6 @@ export async function generateEducationalContentFromImage(
   additionalPrompt?: string,
   previousTopics: string[] = []
 ): Promise<EducationalContent> {
-  const ai = getAI();
   const uniquenessPrompt = `
 Generate a new UNIQUE set of questions.
 Important:
@@ -900,8 +1130,7 @@ Generate fresh questions now.
     inlineData: { mimeType: img.mimeType, data: img.base64 },
   }));
 
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: {
       parts: [...imageParts, { text: prompt }],
     },
@@ -910,16 +1139,14 @@ Generate fresh questions now.
       responseMimeType: "application/json",
       responseSchema: educationalContentSchema,
     },
-  }));
+  });
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
 }
 
 export async function generateDeepDiveContentFromText(text: string): Promise<DeepDiveContent> {
-  const ai = getAI();
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
+  const response = await generateContentWithFallback({
     contents: {
       parts: [
         {
@@ -932,7 +1159,7 @@ export async function generateDeepDiveContentFromText(text: string): Promise<Dee
       responseMimeType: "application/json",
       responseSchema: deepDiveContentSchema,
     },
-  }));
+  });
 
   const jsonText = cleanJsonResponse(response.text || "{}");
   return JSON.parse(jsonText);
@@ -940,23 +1167,50 @@ export async function generateDeepDiveContentFromText(text: string): Promise<Dee
 
 export async function generateSpeech(text: string): Promise<string> {
   const ai = getAI();
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TTS_MODEL,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text }],
-      },
-    ],
-    config: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: "Kore" },
+  const now = Date.now();
+  const cooldownUntil = modelCooldownUntil.get(TTS_MODEL) ?? 0;
+  if (cooldownUntil > now) {
+    const waitSeconds = Math.max(1, Math.ceil((cooldownUntil - now) / 1000));
+    throw new QuotaExceededError(
+      formatQuotaExceededMessage("", waitSeconds),
+      waitSeconds,
+      TTS_MODEL
+    );
+  }
+
+  let response;
+  try {
+    response = await withRetry(() =>
+      ai.models.generateContent({
+        model: TTS_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text }],
+          },
+        ],
+        config: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Kore" },
+            },
+          },
         },
-      },
-    },
-  }));
+      })
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (isQuotaErrorMessage(msg)) {
+      const waitSeconds = recordModelCooldown(TTS_MODEL, msg);
+      throw new QuotaExceededError(
+        formatQuotaExceededMessage(msg, waitSeconds),
+        waitSeconds,
+        TTS_MODEL
+      );
+    }
+    throw error;
+  }
 
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
   if (!base64Audio) return "";
@@ -969,14 +1223,10 @@ export async function generateSpeech(text: string): Promise<string> {
 }
 
 export async function translateText(text: string, targetLanguage: string): Promise<string> {
-  const ai = getAI();
-  const response = await withRetry(() => ai.models.generateContent({
-    model: TEXT_MODEL,
-    contents: `Translate to ${targetLanguage}: ${text}`,
-    config: {
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-    },
-  }));
+  const response = await generateContentWithFallback({
+    contents: `Translate the following text into ${targetLanguage}. Return ONLY the translated text without any extra commentary:\n\n${text}`,
+    preferLite: true,
+  });
 
   return response.text?.trim() || "";
 }

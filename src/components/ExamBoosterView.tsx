@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { generateQuiz } from '../lib/gemini';
+import { generateQuiz, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { GraduationCap, Loader2, CheckCircle2, XCircle, Download, WifiOff } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
@@ -58,12 +58,7 @@ export function ExamBoosterView() {
       setShowResults(false);
     } catch (error: unknown) {
       console.error("Failed to generate quiz", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate quiz.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate quiz."));
     } finally {
       setIsGenerating(false);
     }

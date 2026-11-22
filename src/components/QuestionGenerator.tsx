@@ -6,7 +6,7 @@ import {
   BookOpen, List, AlignLeft, AlignJustify, Type, 
   Image as ImageIcon, Loader2, CheckCircle2, Download, WifiOff
 } from 'lucide-react';
-import { generateStructuredQuestions, chatWithSummary } from '../lib/gemini';
+import { generateStructuredQuestions, chatWithSummary, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -163,12 +163,7 @@ export function QuestionGenerator({ onStartPractice }: QuestionGeneratorProps) {
       }
     } catch (error: unknown) {
       console.error("Generation failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate questions. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate questions. Please try again."));
     } finally {
       setIsProcessing(false);
     }
@@ -224,8 +219,8 @@ export function QuestionGenerator({ onStartPractice }: QuestionGeneratorProps) {
           return { categories: merged };
         });
       }
-    } catch {
-      setErrorMessage('Failed to generate additional questions. Please try again.');
+    } catch (error: unknown) {
+      setErrorMessage(formatGeminiErrorMessage(error, 'Failed to generate additional questions. Please try again.'));
     } finally {
       setIsGeneratingMore(false);
     }

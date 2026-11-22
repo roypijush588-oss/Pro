@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, BookOpen, ListChecks, ArrowLeft, RotateCcw, CheckCircle2, XCircle, ChevronRight, Zap, WifiOff } from 'lucide-react';
-import { generateInteractiveStudy } from '../lib/gemini';
+import { generateInteractiveStudy, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface StudyData {
@@ -46,8 +46,8 @@ export function InteractiveStudy() {
       const data = await generateInteractiveStudy(topic);
       setStudyData(data);
       setScreen('home');
-    } catch (_error) {
-      setErrorMessage("Failed to generate study content. Please try again.");
+    } catch (error) {
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate study content. Please try again."));
     } finally {
       setIsGenerating(false);
     }

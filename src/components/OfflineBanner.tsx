@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { WifiOff, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useStore } from '../store/useStore';
-import { generateSummary } from '../lib/gemini';
+import { generateSummary, isQuotaExceededError } from '../lib/gemini';
 
 export const OfflineBanner: React.FC = () => {
   const isOnline = useOnlineStatus();
@@ -56,6 +56,9 @@ export const OfflineBanner: React.FC = () => {
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Sync failed';
           updateQueuedSummaryStatus(item.id, 'failed', msg);
+          if (isQuotaExceededError(err)) {
+            break;
+          }
         }
       }
 
@@ -113,11 +116,15 @@ export const OfflineBanner: React.FC = () => {
   }
 
   if (failedCount > 0) {
+    const firstFailedError = pendingSummaries.find((q) => q.status === 'failed' && q.error)?.error;
     return (
       <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-red-900 text-xs sm:text-sm flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-          <span>{failedCount} queued summary request{failedCount > 1 ? 's' : ''} could not sync.</span>
+          <span className="truncate">
+            {failedCount} queued summary request{failedCount > 1 ? 's' : ''} could not sync
+            {firstFailedError ? `: ${firstFailedError}` : '.'}
+          </span>
         </div>
         <button
           onClick={() =>
@@ -125,7 +132,7 @@ export const OfflineBanner: React.FC = () => {
               .filter((q) => q.status === 'failed')
               .forEach((q) => updateQueuedSummaryStatus(q.id, 'pending'))
           }
-          className="px-2.5 py-1 rounded-md bg-red-100 hover:bg-red-200 text-red-800 font-medium text-xs"
+          className="px-2.5 py-1 rounded-md bg-red-100 hover:bg-red-200 text-red-800 font-medium text-xs shrink-0"
         >
           Retry
         </button>

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Type, Image as ImageIcon, Loader2, Send, Download, WifiOff } from 'lucide-react';
-import { solveHomework } from '../lib/gemini';
+import { solveHomework, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -45,12 +45,7 @@ export function HomeworkSolver() {
       setSolution(result || "Could not generate a solution.");
     } catch (error: unknown) {
       console.error("Solving failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to solve homework. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to solve homework. Please try again."));
     } finally {
       setIsProcessing(false);
     }

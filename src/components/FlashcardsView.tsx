@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { generateFlashcards } from '../lib/gemini';
+import { generateFlashcards, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { BrainCircuit, Loader2, ChevronRight, ChevronLeft, RefreshCw, Download, WifiOff } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -59,12 +59,7 @@ export function FlashcardsView() {
       setIsFlipped(false);
     } catch (error: unknown) {
       console.error("Failed to generate flashcards", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate flashcards.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate flashcards."));
     } finally {
       setIsGenerating(false);
     }

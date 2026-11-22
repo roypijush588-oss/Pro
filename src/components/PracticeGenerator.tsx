@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Type, Image as ImageIcon, Loader2, CheckCircle2, ListChecks, XCircle, ArrowRight, RotateCcw, Trophy, X, Download, WifiOff
 } from 'lucide-react';
-import { generateStructuredPractice } from '../lib/gemini';
+import { generateStructuredPractice, formatGeminiErrorMessage } from '../lib/gemini';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -106,12 +106,7 @@ export function PracticeGenerator() {
       }
     } catch (error: unknown) {
       console.error("Generation failed:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("429") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) {
-        setErrorMessage("API Quota Exceeded. Please check your plan and billing details.");
-      } else {
-        setErrorMessage("Failed to generate practice questions. Please try again.");
-      }
+      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate practice questions. Please try again."));
     } finally {
       setIsProcessing(false);
     }
