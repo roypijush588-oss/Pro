@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, BookOpen, BrainCircuit, GraduationCap, Settings, Folder, Plus, X, Zap, ListChecks, TrendingUp, HelpCircle, Lightbulb, Wifi, WifiOff, Trash2 } from 'lucide-react';
+import { FileText, BookOpen, BrainCircuit, GraduationCap, Settings, Folder, Plus, X, Zap, ListChecks, HelpCircle, Lightbulb, Wifi, WifiOff, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useStore } from '../store/useStore';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -27,7 +27,6 @@ export function Sidebar({ activeTab, setActiveTab, onSelectNote, isOpen, setIsOp
     { id: 'practice', label: 'Practice Generator', icon: ListChecks },
     { id: 'revision', label: 'Quick Revision', icon: Zap },
     { id: 'homework', label: 'Homework Solver', icon: BookOpen },
-    { id: 'performance', label: 'Performance Analyzer', icon: TrendingUp },
     { id: 'notes', label: 'My Notes', icon: Folder },
     { id: 'flashcards', label: 'Flashcards', icon: BrainCircuit },
     { id: 'exam', label: 'Exam Booster', icon: GraduationCap },

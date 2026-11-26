@@ -16,6 +16,26 @@ function buildCacheKey(endpoint: string, payload: Record<string, unknown>): stri
   return `${endpoint}:${JSON.stringify(payload)}`;
 }
 
+export function isRetryableGeminiError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes('429') ||
+    message.includes('resource_exhausted') ||
+    message.includes('quota') ||
+    message.includes('rate limit') ||
+    message.includes('503') ||
+    message.includes('504') ||
+    message.includes('timed out')
+  );
+}
+
+export function getGeminiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
 async function postGemini<T>(endpoint: string, payload: Record<string, unknown>): Promise<T> {
   const cacheKey = buildCacheKey(endpoint, payload);
   const cached = serviceResponseCache.get(cacheKey);

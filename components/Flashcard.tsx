@@ -20,16 +20,20 @@ const Flashcard: React.FC<FlashcardProps> = ({ flashcard }) => {
   const flipperStyle = {
     transition: 'transform 0.6s',
     transformStyle: 'preserve-3d' as const,
-    transform: isFlipped ? 'rotateY(180deg)' : '',
+    WebkitTransformStyle: 'preserve-3d' as const,
+    transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
   };
 
   const faceStyle = {
     backfaceVisibility: 'hidden' as const,
+    WebkitBackfaceVisibility: 'hidden' as const,
+    transform: 'rotateY(0deg) translateZ(1px)',
   };
 
   const backStyle = {
-    ...faceStyle,
-    transform: 'rotateY(180deg)',
+    backfaceVisibility: 'hidden' as const,
+    WebkitBackfaceVisibility: 'hidden' as const,
+    transform: 'rotateY(180deg) translateZ(1px)',
   };
 
   return (

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
   QuotaExceededError,
-  analyzePerformance,
   chatWithSummary,
   createNotes,
   formatQuotaExceededMessage,
@@ -312,13 +311,6 @@ export async function dispatchGeminiEndpoint(
         throw new HttpError(400, 'Please provide content or an image to generate structured questions.');
       }
       return generateStructuredQuestions(text, imageUrl);
-    }
-
-    case 'analyze-performance': {
-      const topic = asString(body.topic);
-      const correct = asString(body.correct);
-      const wrong = asString(body.wrong);
-      return analyzePerformance(topic, correct, wrong);
     }
 
     case 'study-lesson': {

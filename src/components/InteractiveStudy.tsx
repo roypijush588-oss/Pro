@@ -212,14 +212,31 @@ export function InteractiveStudy() {
                   onClick={() => toggleFlashcard(idx)}
                   className="relative h-40 w-full perspective-1000 cursor-pointer group"
                 >
-                  <div className={`w-full h-full transition-all duration-500 transform-style-3d ${flippedCards[idx] ? 'rotate-y-180' : ''}`}>
+                  <div
+                    className={`w-full h-full transition-transform duration-500 transform-style-3d ${flippedCards[idx] ? 'rotate-y-180' : ''}`}
+                    style={{ transformStyle: 'preserve-3d', WebkitTransformStyle: 'preserve-3d' }}
+                  >
                     {/* Front */}
-                    <div className="absolute inset-0 backface-hidden bg-white border border-gray-200 rounded-2xl p-4 flex items-center justify-center text-center shadow-sm group-hover:border-purple-300 transition-colors">
-                      <p className="font-medium text-gray-800">{card.front}</p>
+                    <div
+                      className="absolute inset-0 backface-hidden bg-white border border-gray-200 rounded-2xl p-4 flex items-center justify-center text-center shadow-sm group-hover:border-purple-300 transition-colors overflow-y-auto"
+                      style={{
+                        backfaceVisibility: 'hidden',
+                        WebkitBackfaceVisibility: 'hidden',
+                        transform: 'rotateY(0deg) translateZ(1px)',
+                      }}
+                    >
+                      <p className="font-medium text-gray-800 break-words max-w-full">{card.front}</p>
                     </div>
                     {/* Back */}
-                    <div className="absolute inset-0 backface-hidden rotate-y-180 bg-purple-600 text-white rounded-2xl p-4 flex items-center justify-center text-center shadow-md">
-                      <p className="font-medium">{card.back}</p>
+                    <div
+                      className="absolute inset-0 backface-hidden bg-purple-600 text-white rounded-2xl p-4 flex items-center justify-center text-center shadow-md overflow-y-auto"
+                      style={{
+                        backfaceVisibility: 'hidden',
+                        WebkitBackfaceVisibility: 'hidden',
+                        transform: 'rotateY(180deg) translateZ(1px)',
+                      }}
+                    >
+                      <p className="font-medium break-words max-w-full">{card.back}</p>
                     </div>
                   </div>
                 </div>

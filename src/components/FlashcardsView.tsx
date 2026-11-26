@@ -171,18 +171,31 @@ export function FlashcardsView() {
           </div>
 
           <div 
-            className="relative w-full max-w-2xl h-80 perspective-1000 cursor-pointer"
+            className="relative w-full max-w-2xl h-80 perspective-1000 cursor-pointer select-none"
             onClick={() => setIsFlipped(!isFlipped)}
           >
             <motion.div
-              className="w-full h-full relative preserve-3d transition-all duration-500"
-              animate={{ rotateX: isFlipped ? 180 : 0 }}
-              transition={{ duration: 0.6, type: "spring", stiffness: 260, damping: 20 }}
+              className="w-full h-full relative transform-style-3d"
+              style={{
+                transformStyle: 'preserve-3d',
+                WebkitTransformStyle: 'preserve-3d',
+              }}
+              animate={{ rotateY: isFlipped ? 180 : 0 }}
+              transition={{ duration: 0.5, type: "spring", stiffness: 260, damping: 22 }}
             >
               {/* Front */}
-              <div className="absolute w-full h-full backface-hidden bg-white rounded-2xl border-2 border-blue-100 shadow-lg p-8 flex flex-col items-center justify-center text-center">
+              <div
+                className="absolute inset-0 backface-hidden bg-white rounded-2xl border-2 border-blue-100 shadow-lg px-8 py-12 flex flex-col items-center justify-center text-center overflow-y-auto"
+                style={{
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                  transform: 'rotateY(0deg) translateZ(1px)',
+                  pointerEvents: isFlipped ? 'none' : 'auto',
+                }}
+                aria-hidden={isFlipped}
+              >
                 <span className="absolute top-4 left-4 text-xs font-bold text-blue-400 uppercase tracking-widest">Question</span>
-                <h3 className="text-2xl font-medium text-gray-800">{activeSet.cards[currentCardIndex].question}</h3>
+                <h3 className="text-xl sm:text-2xl font-medium text-gray-800 break-words max-w-full">{activeSet.cards[currentCardIndex].question}</h3>
                 <p className="absolute bottom-4 text-sm text-gray-400 flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" /> Click to flip
                 </p>
@@ -190,11 +203,20 @@ export function FlashcardsView() {
 
               {/* Back */}
               <div 
-                className="absolute w-full h-full backface-hidden bg-blue-600 rounded-2xl shadow-lg p-8 flex flex-col items-center justify-center text-center"
-                style={{ transform: 'rotateX(180deg)' }}
+                className="absolute inset-0 backface-hidden bg-blue-600 rounded-2xl shadow-lg px-8 py-12 flex flex-col items-center justify-center text-center overflow-y-auto"
+                style={{
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                  transform: 'rotateY(180deg) translateZ(1px)',
+                  pointerEvents: isFlipped ? 'auto' : 'none',
+                }}
+                aria-hidden={!isFlipped}
               >
                 <span className="absolute top-4 left-4 text-xs font-bold text-blue-200 uppercase tracking-widest">Answer</span>
-                <p className="text-xl text-white">{activeSet.cards[currentCardIndex].answer}</p>
+                <p className="text-lg sm:text-xl text-white break-words max-w-full">{activeSet.cards[currentCardIndex].answer}</p>
+                <p className="absolute bottom-4 text-sm text-blue-200 flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3" /> Click to flip
+                </p>
               </div>
             </motion.div>
           </div>

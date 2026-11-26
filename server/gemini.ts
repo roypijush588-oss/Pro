@@ -260,9 +260,18 @@ function parseDataUrl(imageUrl: string): { data: string; mimeType: string } {
     throw new Error("Invalid image data URL.");
   }
   const header = imageUrl.slice(0, commaIdx);
-  const data = imageUrl.slice(commaIdx + 1);
-  const mimeMatch = header.match(/^data:([^;]+)/);
-  const mimeType = mimeMatch?.[1] || "image/png";
+  const data = imageUrl.slice(commaIdx + 1).trim();
+  if (!data) {
+    throw new Error("Invalid image data URL.");
+  }
+  const mimeMatch = header.match(/^data:([^;]+)/i);
+  let mimeType = (mimeMatch?.[1] || "image/png").toLowerCase();
+  if (mimeType === "image/jpg") {
+    mimeType = "image/jpeg";
+  }
+  if (!mimeType.startsWith("image/")) {
+    throw new Error("Invalid image data URL.");
+  }
   return { data, mimeType };
 }
 
@@ -326,10 +335,19 @@ Ensure the summary is clear, accurate, and captures the core message.`;
     contents = prompt;
   } else if (imageUrl) {
     const { data, mimeType } = parseDataUrl(imageUrl);
+    const extraInstructions = text.trim()
+      ? `\n\nAdditional user instructions or context:\n${text.trim()}`
+      : "";
     contents = {
       parts: [
-        { text: prompt + `\n\nSummarize the text found in this image.` },
-        { inlineData: { data, mimeType } },
+        {
+          inlineData: { data, mimeType },
+        },
+        {
+          text:
+            prompt +
+            `\n\nAnalyze and summarize all text, notes, diagrams, formulas, and key information shown in this image.${extraInstructions}`,
+        },
       ],
     };
   } else {
@@ -346,7 +364,11 @@ Ensure the summary is clear, accurate, and captures the core message.`;
     config,
   });
 
-  return response.text ?? "";
+  const summary = response.text?.trim() ?? "";
+  if (!summary) {
+    throw new Error("Could not extract readable content from the provided input. Please try a clearer image or text.");
+  }
+  return summary;
 }
 
 export async function generateFlashcards(text: string) {
@@ -821,38 +843,6 @@ Ensure the output is valid JSON.`;
   });
 
   return cleanJsonResponse(response.text || "");
-}
-
-export async function analyzePerformance(
-  topic: string,
-  correct: string,
-  wrong: string
-): Promise<string> {
-  const prompt = `You are an AI student performance analyzer.
-
-Analyze the student's performance.
-
-Input:
-- Topic: ${topic}
-- Correct answers: ${correct}
-- Wrong answers: ${wrong}
-
-Output:
-- Score percentage
-- Weak areas
-- सुझाव (Suggestions) for improvement
-- What to revise next
-
-Rules:
-- Keep it constructive and encouraging
-- Provide actionable advice
-- Format clearly using Markdown`;
-
-  const response = await generateContentWithFallback({
-    contents: prompt,
-  });
-
-  return response.text ?? "";
 }
 
 export async function generateStudyLesson(topic: string, imageUrl?: string): Promise<string> {

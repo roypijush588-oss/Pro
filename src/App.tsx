@@ -7,7 +7,6 @@ import { NoteMaker } from './components/NoteMaker';
 import { QuestionGenerator } from './components/QuestionGenerator';
 import { RevisionAssistant } from './components/RevisionAssistant';
 import { PracticeGenerator } from './components/PracticeGenerator';
-import { PerformanceAnalyzer } from './components/PerformanceAnalyzer';
 import { NoteView } from './components/NoteView';
 import { NotesList } from './components/NotesList';
 import { FlashcardsView } from './components/FlashcardsView';
@@ -26,7 +25,6 @@ const VALID_TABS = new Set([
   'practice',
   'revision',
   'homework',
-  'performance',
   'notes',
   'flashcards',
   'exam',
@@ -109,7 +107,6 @@ function App() {
           {activeTab === 'practice' && <PracticeGenerator />}
           {activeTab === 'revision' && <RevisionAssistant />}
           {activeTab === 'homework' && <HomeworkSolver />}
-          {activeTab === 'performance' && <PerformanceAnalyzer />}
           {activeTab === 'notes' && (
             <NotesList 
               onSelectNote={(id) => { 

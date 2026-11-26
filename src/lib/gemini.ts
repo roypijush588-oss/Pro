@@ -237,10 +237,6 @@ export async function generateStructuredQuestions(text: string, imageUrl?: strin
   return postGemini<string>('structured-questions', { text, imageUrl });
 }
 
-export async function analyzePerformance(topic: string, correct: string, wrong: string) {
-  return postGemini<string>('analyze-performance', { topic, correct, wrong });
-}
-
 export async function generateStudyLesson(topic: string, imageUrl?: string) {
   return postGemini<string>('study-lesson', { topic, imageUrl });
 }

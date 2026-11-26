@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Type, Image as ImageIcon, Link as LinkIcon, Loader2, Settings2 } from 'lucide-react';
 import { generateSummary, formatGeminiErrorMessage, SummaryOptions } from '../lib/gemini';
+import { prepareImageDataUrl } from '../lib/imageUtils';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { Note } from '../store/useStore';
 
 interface SummarizerProps {
@@ -15,6 +17,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isOnline = useOnlineStatus();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [options, setOptions] = useState<SummaryOptions>({
@@ -24,38 +27,68 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
     language: 'English'
   });
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    setErrorMessage(null);
+    try {
+      const prepared = await prepareImageDataUrl(file);
+      setImageUrl(prepared);
+    } catch (error: unknown) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to load the selected image.'
+      );
     }
   };
 
+  const hasActiveInput =
+    inputType === 'text'
+      ? Boolean(text.trim())
+      : inputType === 'image'
+        ? Boolean(imageUrl)
+        : Boolean(url.trim());
+
   const handleSummarize = async () => {
-    if (!text && !url && !imageUrl) return;
-    
+    if (!hasActiveInput) return;
+    if (!isOnline) {
+      setErrorMessage('Generating a summary requires an internet connection.');
+      return;
+    }
+
+    const activeText = inputType === 'url' ? '' : text;
+    const activeImageUrl = inputType === 'image' ? imageUrl : undefined;
+    const activeUrl = inputType === 'url' ? url.trim() : undefined;
+
     setErrorMessage(null);
     setIsProcessing(true);
     try {
-      const summaryText = await generateSummary(text, options, imageUrl, url);
-      
+      const summaryText = await generateSummary(
+        activeText,
+        options,
+        activeImageUrl,
+        activeUrl
+      );
+
       const newNote: Note = {
         id: Date.now().toString(),
-        title: (text.trim() ? text.trim().slice(0, 30) + (text.trim().length > 30 ? '...' : '') : '') || url || 'Image Summary',
-        originalText: text || url || 'Image content',
+        title:
+          (activeText.trim()
+            ? activeText.trim().slice(0, 30) + (activeText.trim().length > 30 ? '...' : '')
+            : '') ||
+          activeUrl ||
+          'Image Summary',
+        originalText: activeText || activeUrl || 'Image content',
         summary: summaryText,
         date: new Date().toISOString(),
-        folder: 'Uncategorized'
+        folder: 'Uncategorized',
       };
-      
+
       onSummaryComplete(newNote);
     } catch (error: unknown) {
-      console.error("Summarization failed:", error);
-      setErrorMessage(formatGeminiErrorMessage(error, "Failed to generate summary. Please try again."));
+      console.error('Summarization failed:', error);
+      setErrorMessage(formatGeminiErrorMessage(error, 'Failed to generate summary. Please try again.'));
     } finally {
       setIsProcessing(false);
     }
@@ -172,7 +205,7 @@ export function Summarizer({ onSummaryComplete }: SummarizerProps) {
           
           <button
             onClick={handleSummarize}
-            disabled={isProcessing || (!text && !url && !imageUrl)}
+            disabled={isProcessing || !hasActiveInput}
             className="w-full sm:w-auto flex justify-center items-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-full font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {isProcessing ? (
