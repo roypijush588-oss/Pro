@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Type, Image as ImageIcon, Loader2, FileText, Download, WifiOff } from 'lucide-react';
 import { createNotes, formatGeminiErrorMessage } from '../lib/gemini';
+import { prepareImageDataUrl } from '../lib/imageUtils';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -19,14 +20,17 @@ export function NoteMaker() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    setErrorMessage(null);
+    try {
+      const prepared = await prepareImageDataUrl(file);
+      setImageUrl(prepared);
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load the selected image.');
     }
   };
 

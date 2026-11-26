@@ -5,6 +5,7 @@ import {
   Sparkles, Download, BookOpen, ChevronRight, WifiOff, Check
 } from 'lucide-react';
 import { generateStudyLesson, formatGeminiErrorMessage } from '../lib/gemini';
+import { prepareImageDataUrl } from '../lib/imageUtils';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useStore } from '../store/useStore';
 import Markdown from 'react-markdown';
@@ -61,14 +62,17 @@ export function StudyMode({ onStartPractice }: StudyModeProps) {
     setSavedToLibrary(true);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    setErrorMessage(null);
+    try {
+      const prepared = await prepareImageDataUrl(file);
+      setImageUrl(prepared);
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load the selected image.');
     }
   };
 

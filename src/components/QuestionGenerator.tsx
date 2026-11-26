@@ -7,6 +7,7 @@ import {
   Image as ImageIcon, Loader2, CheckCircle2, Download, WifiOff
 } from 'lucide-react';
 import { generateStructuredQuestions, chatWithSummary, formatGeminiErrorMessage } from '../lib/gemini';
+import { prepareImageDataUrl } from '../lib/imageUtils';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -60,81 +61,118 @@ export function QuestionGenerator({ onStartPractice }: QuestionGeneratorProps) {
 
   const downloadPDF = () => {
     if (!data) return;
-    
+
     const container = document.createElement('div');
     container.style.padding = '40px';
     container.style.fontFamily = 'system-ui, -apple-system, sans-serif';
     container.style.color = '#1f2937';
     container.style.maxWidth = '800px';
     container.style.margin = '0 auto';
-    
-    let html = `
-      <h1 style="font-size: 32px; font-weight: 800; margin-bottom: 32px; color: #374151;">Study Notes</h1>
-    `;
-    
-    data.categories.forEach(category => {
-      html += `
-        <h2 style="font-size: 24px; font-weight: 700; margin-top: 40px; margin-bottom: 20px; color: #374151;">${category.title}</h2>
-      `;
-      
+
+    const titleEl = document.createElement('h1');
+    titleEl.style.fontSize = '32px';
+    titleEl.style.fontWeight = '800';
+    titleEl.style.marginBottom = '32px';
+    titleEl.style.color = '#374151';
+    titleEl.textContent = 'Study Notes';
+    container.appendChild(titleEl);
+
+    data.categories.forEach((category) => {
+      const catHeading = document.createElement('h2');
+      catHeading.style.fontSize = '24px';
+      catHeading.style.fontWeight = '700';
+      catHeading.style.marginTop = '40px';
+      catHeading.style.marginBottom = '20px';
+      catHeading.style.color = '#374151';
+      catHeading.textContent = category.title;
+      container.appendChild(catHeading);
+
       category.questions.forEach((q, index) => {
         let marks = '';
         const catTitle = category.title.toLowerCase();
         if (catTitle.includes('multiple choice') || category.id.includes('mcq')) {
-            marks = '[1 Mark] ';
+          marks = '[1 Mark] ';
         } else if (catTitle.includes('very short') || category.id.includes('vsa')) {
-            marks = '[1 Mark] ';
+          marks = '[1 Mark] ';
         } else if (catTitle.includes('short') || category.id.includes('sa')) {
-            marks = '[2 Marks] ';
+          marks = '[2 Marks] ';
         } else if (catTitle.includes('long') || category.id.includes('la')) {
-            marks = '[5 Marks] ';
+          marks = '[5 Marks] ';
         } else {
-            if (q.difficulty === 'Easy') marks = '[1 Mark] ';
-            else if (q.difficulty === 'Medium') marks = '[2 Marks] ';
-            else if (q.difficulty === 'Hard') marks = '[5 Marks] ';
+          if (q.difficulty === 'Easy') marks = '[1 Mark] ';
+          else if (q.difficulty === 'Medium') marks = '[2 Marks] ';
+          else if (q.difficulty === 'Hard') marks = '[5 Marks] ';
         }
-        
-        html += `
-          <div style="margin-bottom: 28px; page-break-inside: avoid;">
-            <p style="font-weight: 600; margin-bottom: 12px; font-size: 16px; line-height: 1.5; color: #374151;">Q${index + 1}: ${marks}${q.text}</p>
-        `;
-        
+
+        const block = document.createElement('div');
+        block.style.marginBottom = '28px';
+        block.style.pageBreakInside = 'avoid';
+
+        const questionP = document.createElement('p');
+        questionP.style.fontWeight = '600';
+        questionP.style.marginBottom = '12px';
+        questionP.style.fontSize = '16px';
+        questionP.style.lineHeight = '1.5';
+        questionP.style.color = '#374151';
+        questionP.textContent = `Q${index + 1}: ${marks}${q.text}`;
+        block.appendChild(questionP);
+
         if (q.options && q.options.length > 0) {
-          html += `<ul style="margin-bottom: 16px; padding-left: 24px; list-style-type: disc; line-height: 1.6; color: #374151;">`;
-          q.options.forEach(opt => {
-            html += `<li style="margin-bottom: 6px;">${opt}</li>`;
+          const list = document.createElement('ul');
+          list.style.marginBottom = '16px';
+          list.style.paddingLeft = '24px';
+          list.style.listStyleType = 'disc';
+          list.style.lineHeight = '1.6';
+          list.style.color = '#374151';
+          q.options.forEach((opt) => {
+            const li = document.createElement('li');
+            li.style.marginBottom = '6px';
+            li.textContent = opt;
+            list.appendChild(li);
           });
-          html += `</ul>`;
-          html += `<p style="font-style: italic; margin-bottom: 8px; color: #4b5563;">Correct Answer:</p>`;
+          block.appendChild(list);
+
+          const ansLabel = document.createElement('p');
+          ansLabel.style.fontStyle = 'italic';
+          ansLabel.style.marginBottom = '8px';
+          ansLabel.style.color = '#4b5563';
+          ansLabel.textContent = 'Correct Answer:';
+          block.appendChild(ansLabel);
         } else {
-          html += `<p style="font-weight: 700; margin-bottom: 8px; color: #374151;">A:</p>`;
+          const ansLabel = document.createElement('p');
+          ansLabel.style.fontWeight = '700';
+          ansLabel.style.marginBottom = '8px';
+          ansLabel.style.color = '#374151';
+          ansLabel.textContent = 'A:';
+          block.appendChild(ansLabel);
         }
-        
-        html += `</div>`;
+
+        container.appendChild(block);
       });
     });
-    
-    container.innerHTML = html;
-    
+
     const opt = {
       margin: 0.5,
       filename: 'study_notes.pdf',
       image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { unit: 'in' as const, format: 'letter', orientation: 'portrait' as const }
+      jsPDF: { unit: 'in' as const, format: 'letter', orientation: 'portrait' as const },
     };
-    
+
     html2pdf().set(opt).from(container).save();
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+
+    setErrorMessage(null);
+    try {
+      const prepared = await prepareImageDataUrl(file);
+      setImageUrl(prepared);
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load the selected image.');
     }
   };
 

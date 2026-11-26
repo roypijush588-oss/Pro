@@ -50,10 +50,10 @@ export function isQuotaExceededError(error: unknown): boolean {
 export function formatGeminiErrorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : String(error);
   if (isQuotaExceededError(error)) {
-    if (message.includes('Settings > Secrets') || message.includes('Please retry in') || message.includes('rate limit reached') || message.includes('quota limit reached')) {
+    if (message.includes('Please retry in') || message.includes('rate limit reached') || message.includes('quota limit reached')) {
       return message;
     }
-    return 'API quota limit reached (429). Please wait a moment and try again, or select a billing-enabled API key in Settings > Secrets.';
+    return 'AI service rate limit reached (429). Please wait a moment and try again.';
   }
   return message || fallback;
 }
@@ -137,7 +137,7 @@ async function postGemini<T>(endpoint: string, payload: Record<string, unknown>)
         }
         if (response.status === 429) {
           throw new GeminiRequestError(
-            'API quota limit reached (429). Please wait a moment and try again, or select a billing-enabled API key in Settings > Secrets.',
+            'AI service rate limit reached (429). Please wait a moment and try again.',
             429,
             retryAfterSeconds
           );

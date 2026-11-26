@@ -10,7 +10,7 @@ interface MermaidDiagramProps {
 mermaid.initialize({
   startOnLoad: false,
   theme: 'dark',
-  securityLevel: 'loose',
+  securityLevel: 'strict',
   themeVariables: {
     background: '#1F2937', // bg-gray-800
     primaryColor: '#374151', // bg-gray-700
@@ -43,14 +43,24 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
         } catch (e) {
             console.error("Mermaid render error:", e);
             if (ref.current) {
-                const errorMessage = e instanceof Error ? e.message : 'Unknown error';
-                ref.current.innerHTML = `
-                  <div class="bg-red-900/30 border border-red-500/50 text-red-300 p-4 rounded-lg text-left">
-                    <p class="font-bold mb-2">Diagram Syntax Error</p>
-                    <p class="text-sm mb-2">${errorMessage.split('lex').shift()}</p>
-                    <pre class="bg-gray-900 p-2 rounded text-xs whitespace-pre-wrap font-mono overflow-auto">${chart}</pre>
-                  </div>
-                `;
+              const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+              const wrapper = document.createElement('div');
+              wrapper.className = 'bg-red-900/30 border border-red-500/50 text-red-300 p-4 rounded-lg text-left';
+
+              const title = document.createElement('p');
+              title.className = 'font-bold mb-2';
+              title.textContent = 'Diagram Syntax Error';
+
+              const detail = document.createElement('p');
+              detail.className = 'text-sm mb-2';
+              detail.textContent = errorMessage.split('lex').shift() || '';
+
+              const pre = document.createElement('pre');
+              pre.className = 'bg-gray-900 p-2 rounded text-xs whitespace-pre-wrap font-mono overflow-auto';
+              pre.textContent = chart;
+
+              wrapper.append(title, detail, pre);
+              ref.current.replaceChildren(wrapper);
             }
         }
       } else if (ref.current) {

@@ -11,7 +11,15 @@ node_modules
 dist
 dev-dist
 dist-ssr
+coverage
+.vercel
 *.local
+*.tsbuildinfo
+
+# Environment variables (never commit real secrets; keep .env.example tracked)
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

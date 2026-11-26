@@ -81,9 +81,9 @@ export function formatWaitDuration(seconds?: number): string | null {
 export function formatQuotaExceededMessage(rawMessage: string, retryAfterSeconds?: number): string {
   const wait = formatWaitDuration(retryAfterSeconds);
   const isDaily = rawMessage.includes("GenerateRequestsPerDay") || (retryAfterSeconds !== undefined && retryAfterSeconds >= 300);
-  const scopeLabel = isDaily ? "Daily API quota limit reached" : "API rate limit reached";
+  const scopeLabel = isDaily ? "Daily AI service quota limit reached" : "AI service rate limit reached";
   const waitPart = wait ? ` Please retry in ~${wait}.` : " Please wait a moment and try again.";
-  return `${scopeLabel} (429 RESOURCE_EXHAUSTED).${waitPart} Upgrading to a paid tier increases your quota — you can select a billing-enabled API key in Settings > Secrets (or update GEMINI_API_KEY in your deployment environment).`;
+  return `${scopeLabel} (429).${waitPart}`;
 }
 
 function recordModelCooldown(model: string, rawMessage: string): number | undefined {
@@ -254,24 +254,54 @@ async function generateContentWithFallback(
   throw lastError;
 }
 
-function parseDataUrl(imageUrl: string): { data: string; mimeType: string } {
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+const MAX_IMAGE_BASE64_LENGTH = 3_600_000;
+
+export function normalizeAllowedImageMimeType(rawMime: string): string {
+  let mimeType = rawMime.trim().toLowerCase();
+  if (mimeType === "image/jpg") {
+    mimeType = "image/jpeg";
+  }
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw new Error("Unsupported image format. Please upload a JPEG, PNG, WebP, or HEIC image.");
+  }
+  return mimeType;
+}
+
+export function validateBase64ImageData(rawBase64: string): string {
+  const cleaned = rawBase64.replace(/\s+/g, "");
+  if (!cleaned || cleaned.length > MAX_IMAGE_BASE64_LENGTH) {
+    throw new Error("Image size is invalid or exceeds the allowed upload limit.");
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
+    throw new Error("Invalid image data URL.");
+  }
+  return cleaned;
+}
+
+export function parseDataUrl(imageUrl: string): { data: string; mimeType: string } {
+  if (imageUrl.length > MAX_IMAGE_BASE64_LENGTH + 128) {
+    throw new Error("Image size is invalid or exceeds the allowed upload limit.");
+  }
   const commaIdx = imageUrl.indexOf(",");
   if (commaIdx === -1) {
     throw new Error("Invalid image data URL.");
   }
   const header = imageUrl.slice(0, commaIdx);
-  const data = imageUrl.slice(commaIdx + 1).trim();
-  if (!data) {
+  const rawData = imageUrl.slice(commaIdx + 1);
+  const mimeMatch = header.match(/^data:([^;]+);base64$/i);
+  if (!mimeMatch) {
     throw new Error("Invalid image data URL.");
   }
-  const mimeMatch = header.match(/^data:([^;]+)/i);
-  let mimeType = (mimeMatch?.[1] || "image/png").toLowerCase();
-  if (mimeType === "image/jpg") {
-    mimeType = "image/jpeg";
-  }
-  if (!mimeType.startsWith("image/")) {
-    throw new Error("Invalid image data URL.");
-  }
+  const mimeType = normalizeAllowedImageMimeType(mimeMatch[1]);
+  const data = validateBase64ImageData(rawData);
   return { data, mimeType };
 }
 
@@ -1117,7 +1147,10 @@ Generate fresh questions now.
   }
 
   const imageParts = images.map((img) => ({
-    inlineData: { mimeType: img.mimeType, data: img.base64 },
+    inlineData: {
+      mimeType: normalizeAllowedImageMimeType(img.mimeType),
+      data: validateBase64ImageData(img.base64),
+    },
   }));
 
   const response = await generateContentWithFallback({

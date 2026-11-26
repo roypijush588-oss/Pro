@@ -81,7 +81,7 @@ async function postGemini<T>(endpoint: string, payload: Record<string, unknown>)
         }
         if (response.status === 429) {
           throw new Error(
-            'API quota limit reached (429). Please wait a moment and try again, or select a billing-enabled API key in Settings > Secrets.'
+            'AI service rate limit reached (429). Please wait a moment and try again.'
           );
         }
         if (response.status === 413) {
